@@ -46,33 +46,19 @@ Xtv_time_diag <- rosmap_baseline_sub$time_ad_dx_mid
 #### Baseline Table ####
 totcount <- length(rosmap_baseline_sub$studyid)
 catcounts <- tapply(rosmap_baseline_sub$studyid, rosmap_baseline_sub$outcome_cat,length)
-#catcounts <- tapply(rosmap_baseline_sub$studyid, rosmap_baseline_sub$ad_diagnosis,length)
 catvars <- c("race_fctwhite","msex","marital_bl_fctmarried","education_15plus","apoe4_any")
-# catvars <- c("apoe4_any","anemia_who_bl","education_15plus","eversmoking","mci_bl","msex","hisp_bin","race_fctwhite", "marital_bl_fctmarried", "wasmarried",
-#              colnames(rosmap_baseline_sub)[str_detect(colnames(rosmap_baseline_sub),pattern = "rx_bl")],
-#              colnames(rosmap_baseline_sub)[str_detect(colnames(rosmap_baseline_sub),pattern = "_fct")])
 basetable <- NULL
 for(var in catvars){
   cutoffval <- 1 #all vars are binary 1/0 in our case
   varcounts <- tapply(rosmap_baseline_sub[,var][[1]], 
-                      # rosmap_baseline_sub$ad_diagnosis,                
                       rosmap_baseline_sub$outcome_cat,
                       function(x){sum(x==cutoffval,na.rm=T)})
   varna <- tapply(rosmap_baseline_sub[,var][[1]],
-                  # rosmap_baseline_sub$ad_diagnosis,                
                   rosmap_baseline_sub$outcome_cat,
                   function(x){sum(is.na(x))})
   testset <- rosmap_baseline_sub[,var][[1]]
-  # if(sum(!is.na(unique(rosmap_baseline_sub[,var])))<=1){
-  #   p.form <- NA
-  # } else{
-  #   p.val <- round(fisher.test(testset,rosmap_baseline_sub$outcome_cat,simulate.p.value=TRUE)$p.val,3)
-  #   p.form <-ifelse(p.val<0.001,"<0.001",p.val)
-  # }
   temprow <- c( 
     paste0(varcounts," (",round(varcounts/(catcounts-varna),3)*100,"%)"),
-    # paste0(varcounts," (",round(varcounts/(catcounts-varna),3)*100,"%) [",varna,"]"),
-    # p.form,
     NULL
   )
   namesvec <- c(rownames(basetable),var)
@@ -136,10 +122,6 @@ rosmap_baseline_sub_long$tstart[rosmap_baseline_sub_long$tstart==0] <- rosmap_ba
 form_death_cox_lhs_string <- "Surv(time=tstart,time2=tstop,event=death,type = 'counting')"
 form_death_cox <- as.formula(paste(form_death_cox_lhs_string, "~", form_rhs_string, "+ ad_tv_ind"))
 form_death_cox_tv <- update(form_death_cox, . ~ . + tt(ad_tv_ind))
-# form_death_cox <- Surv(time=tstart,time2=tstop,event=death,type = "counting") ~ 
-#   race_fctwhite + msex + marital_bl_fctmarried + education_15plus + apoe4_any + ad_tv_ind
-# form_death_cox_tv <- Surv(time=tstart,time2=tstop,event=death,type = "counting") ~ 
-#   race_fctwhite + msex + marital_bl_fctmarried + education_15plus + apoe4_any + ad_tv_ind + tt(ad_tv_ind)
 
 cox_death_fit <- coxph(form_death_cox, data=rosmap_baseline_sub_long)
 summary(cox_death_fit)
@@ -158,15 +140,10 @@ fit_list[["deathtv"]] <- list()
 for(outcome in c("apoe","deathtv",
                  NULL)){
   for(eff in c("invariant","piece","spline",NULL)){
-    for(base in c("wb","ln")){
-      print(paste(outcome,base,eff))
-      temp_fit <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_",base,"_",
-                                        outcome,"_",eff,"_2022-01-27.RDS"))
-      fit_list[[outcome]][[paste(base,eff,sep="_")]] <- temp_fit
-    }
-    print(paste(outcome,"tbp",eff))
-    temp_fit <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_wb_tbp_",outcome,"_",eff,"_2022-01-20.RDS"))
-    fit_list[[outcome]][[paste("tbp",eff,sep="_")]] <- temp_fit
+    print(paste(outcome,base,eff))
+    temp_fit <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_",base,"_",
+                                      outcome,"_",eff,".RDS"))
+    fit_list[[outcome]][[paste(base,eff,sep="_")]] <- temp_fit
   }
 }
 
@@ -188,10 +165,12 @@ loo_list <- list()
 loo_list[["deathtv"]] <- loo_list[["apoe"]] <- list()
 loo_tab_list <- list()
 #AD/dementia Onset
-for(outcome in c("apoe","deathtv",
+for(outcome in c(#"apoe",
+                 "deathtv",
                  NULL)){
   for(eff in c("invariant","piece","spline",NULL)){
-    for(base in c("wb","ln","tbp",
+    for(base in c(#"wb","ln",
+                  "tbp",
                   NULL)){
       print(paste(outcome,base,eff))
       temp_fit <- fit_list[[outcome]][[paste(base,eff,sep="_")]]
@@ -210,8 +189,6 @@ for(outcome in c("apoe","deathtv",
   loo_tab_list[[paste0(outcome,"_wide")]] <- loo_tab_list[[paste0(outcome,"_long")]] %>%
     pivot_wider(names_from=baseline,values_from=looic) %>%
     relocate(effect, `log-Normal`, `Weibull`, `TBP (Weibull Centered)`) %>% arrange(effect)
-    # pivot_wider(names_from=effect,values_from=looic) %>%
-    # relocate(baseline, Constant, `Piecewise Linear`, `Restricted Cubic Spline`)
 }
 #copy and paste the tables from this output
 invisible(lapply(loo_tab_list[str_detect(names(loo_tab_list),"wide")],function(x){
@@ -220,15 +197,64 @@ invisible(lapply(loo_tab_list[str_detect(names(loo_tab_list),"wide")],function(x
   }))
 
 #### Covariate Estimates ####
-cov_list <- list()
-cov_list[["deathtv"]] <- cov_list[["apoe"]] <- list()
+spline_list <- piece_list <- cov_list <- list()
+spline_list[["deathtv"]] <- spline_list[["apoe"]] <- 
+  piece_list[["deathtv"]] <- piece_list[["apoe"]] <- 
+  cov_list[["deathtv"]] <- cov_list[["apoe"]] <- list()
+
 for(outcome in c("apoe","deathtv",NULL)){
-  for(eff in c("invariant","piece","spline")){
+  for(eff in c(#"invariant",
+               #"piece",
+               "spline",
+               NULL)){
     for(base in c("wb","ln","tbp")){
       print(paste(outcome,base,eff))
       temp_fit <- fit_list[[outcome]][[paste(base,eff,sep="_")]]
       print(check_hmc_diagnostics(temp_fit$stan_fit))
       summary_temp <- round(summary(temp_fit$stan_fit,pars=c("beta","beta_tv"))$summary,2)
+      
+      #now, to transform the parameters to the "beta, alpha" parameterization
+      #which, in the sampler, they are not to reduce parameter correlation
+      if(eff == "piece"){
+        betatv_samp_mat <- apply(X = as.array(temp_fit$stan_fit)[,,paste0("beta_tv[",1:temp_fit$nP_tv,"]"),drop=FALSE],
+                                 MARGIN=3,FUN = as.vector)
+        piece_list[[outcome]][[paste(base,eff,sep="_")]] <- 
+          t(apply(X = cbind(betatv_samp_mat[,1], betatv_samp_mat[,2:5] - betatv_samp_mat[,1]), 
+                MARGIN=2, FUN=quantile, probs=c(0.5,0.025,0.975)))
+      } else if(eff == "spline"){
+        knots_temp <- temp_fit$knots
+        if(outcome == "apoe"){
+          Q_temp <- get_basis_tv(x=seq(from=0.01, to=40, by=0.01), tv_type="rp",
+                                 knots=knots_temp[-c(1,length(knots_temp))], #remove the Inf knot
+                                 deriv = FALSE, intercept=TRUE, #include the intercept
+                                 flexsurv_compatible = FALSE)
+          B_temp <- cbind(1, #this is the intercept
+                          get_basis_tv(x=seq(from=0.01, to=40, by=0.01), tv_type="rp",
+                                       knots=knots_temp[-c(1,length(knots_temp))], #remove the Inf knot
+                                       deriv = FALSE, intercept=FALSE, #exclude the intercept
+                                       flexsurv_compatible = FALSE))
+        } else{
+          Q_temp <- get_basis_tv(x=seq(from=0.01, to=20, by=0.01), tv_type="rp",
+                                 knots=knots_temp[-c(1,length(knots_temp))], #remove the Inf knot
+                                 deriv = FALSE, intercept=TRUE, #include the intercept
+                                 flexsurv_compatible = FALSE)
+          B_temp <- cbind(1, #this is the intercept
+                          get_basis_tv(x=seq(from=0.01, to=20, by=0.01), tv_type="rp",
+                                       knots=knots_temp[-c(1,length(knots_temp))], #remove the Inf knot
+                                       deriv = FALSE, intercept=FALSE, #exclude the intercept
+                                       flexsurv_compatible = FALSE))
+        }
+        betatv_samp_mat <- apply(X = as.array(temp_fit$stan_fit)[,,paste0("beta_tv[",1:temp_fit$nP_tv,"]"),drop=FALSE],
+                                 MARGIN=3,FUN = as.vector)
+        #transformation matrix
+        transform_mat <- solve(t(B_temp) %*% B_temp) %*% t(B_temp) %*% Q_temp
+        spline_list[[outcome]][[paste(base,eff,sep="_")]] <- 
+          t(apply(transform_mat %*% t(betatv_samp_mat), MARGIN=1, FUN=quantile, probs=c(0.5,0.025,0.975)))
+        
+        y_temp <- Q_temp %*% betatv_samp_mat[1,]
+        print(summary(lm( y_temp ~ B_temp-1)))
+        
+      }
       cov_list[[outcome]][[paste(base,eff,sep="_")]] <- paste0(summary_temp[,6]," (",summary_temp[,4],", ",summary_temp[,8],")")
     }
   }
@@ -277,16 +303,33 @@ for(outcome in c("apoe","deathtv")){
 }
 #copy and paste the tables from this output
 invisible(lapply(cov_mat_list[str_detect(names(cov_mat_list),"long")],function(x){
-  # print(x)
   print(xtable::xtable(x),include.rownames = FALSE)
 }))
+
+#to build final regression tables, replace time-varying coefficients with the
+#corresponding values from below
+View(cov_mat_list$apoe_long)
+View(cov_mat_list$deathtv_long)
+round(piece_list$apoe$ln_piece,2)
+round(piece_list$apoe$wb_piece,2)
+round(piece_list$apoe$tbp_piece,2)
+round(piece_list$deathtv$ln_piece,2)
+round(piece_list$deathtv$wb_piece,2)
+round(piece_list$deathtv$tbp_piece,2)
+
+round(spline_list$apoe$ln_spline,2)
+round(spline_list$apoe$wb_spline,2)
+round(spline_list$apoe$tbp_spline,2)
+round(spline_list$deathtv$ln_spline,2)
+round(spline_list$deathtv$wb_spline,2)
+round(spline_list$deathtv$tbp_spline,2)
 
 #### AD: Survivor Curves ####
 t_seq_temp <- seq(from=0, to=40, length=80)[-1]
 
 ##generate plot data
 exposed_survs_marg_AD_list <- baseline_survs_marg_AD_list <- list()
-for(base in c("wb","ln", #"tbp",
+for(base in c("wb","ln", "tbp",
               NULL)){
   thin_amt <- 1
   print(base)
@@ -310,44 +353,11 @@ for(base in c("wb","ln", #"tbp",
   saveRDS(exposed_survs_marg_AD_list,file = paste0(ROSMAPtemp,"ROSMAP_AD_exposed_survs_marg.RDS"))  
 }
 
-##load plot data and plot it
-# baseline_survs_marg_AD_list <- readRDS(file=paste0(ROSMAPtemp,"ROSMAP_AD_baseline_survs_marg.RDS"))
-# exposed_survs_marg_AD_list <- readRDS(file=paste0(ROSMAPtemp,"ROSMAP_AD_exposed_survs_marg.RDS"))
-#plotting stratified by baseline distribution (could easily flip it to be by AFT effect specification)
-for(base in c("wb","ln", #"tbp",
-              NULL)){
-  baseline_survs_marg <- do.call(what = cbind, args = baseline_survs_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
-  exposed_survs_marg <- do.call(what = cbind, args = exposed_survs_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
-  #marginal curves
-  cairo_pdf(file = paste0(figurepath,"ROSMAP_apoe_marg_surv_",base,".pdf"), width = 5,height=6)
-  plot(S0_cox_AD_m,col=c("grey80",four_color_qual[1]),lwd=2, ylim=c(0,1),
-       xlab="Time to AD/Dementia without Death, Years from Age 65",
-       ylab="Survivor Function",conf.int = FALSE)
-  matplot(x = t_seq_temp, y = exposed_survs_marg[,c(1,4,7)], type = "l", 
-          col=four_color_qual[2:4],lty=1,lwd = 2, add=TRUE)
-  matplot(x = t_seq_temp,y = baseline_survs_marg[,c(1,4,7)],type = "l", 
-          col=c("grey60","grey40","grey20"),lty=1,lwd=2,add=TRUE)
-  legend("topright", title="No APOE-e4",fill=c("grey80","grey60","grey40","grey20"),cex=0.75,
-         legend=c("PH, Constant", "AFT, Constant","AFT, Piecewise Linear", "AFT, Spline"))
-  legend("bottomleft", title="APOE-e4",fill=four_color_qual,cex=0.75,
-         legend=c("PH, Constant", "AFT, Constant","AFT, Piecewise Linear", "AFT, Spline"))
-  dev.off()
-}
-
-#(black and white plot in case we want that eventually)
-# plot(S0_cox_AD_m,col=c("grey","black"),lwd=2, ylim=c(0,1),
-#      xlab="Time to AD/Dementia without Death, Years from Age 65",
-#      ylab="Survivor Function, S(t)",conf.int = FALSE)
-# matplot(x = t_seq_temp, y = exposed_survs_marg[,c(1,4,7)], type = "l", col="black",lty=2:4,lwd = 2, add=TRUE)
-# matplot(x = t_seq_temp,y = baseline_survs_marg,type = "l", col="grey",lty=2:4,lwd=2,add=TRUE)
-# legend("topright", legend=c("no APOE-e4", "APOE-e4"), fill=c("grey","black"),cex=0.9)
-# legend("bottomleft", legend=c("Constant PH", "Constant AFT", "Piecewise Linear AFT", "Spline AFT"), col="black",lty=c(1:4),lwd=2,cex=0.9)
-
 #### AD: Acceleration Factors ####
 p_seq_temp <- seq(from=0.01,to=0.99,by=0.02)
 
 #generate and save marginal AFs
-begin <-Sys.time()
+begin <- Sys.time()
 AF_marg_AD_list <- list()
 for(base in c("wb","ln", "tbp",
               NULL)){
@@ -363,27 +373,6 @@ for(base in c("wb","ln", "tbp",
 }
 end <- Sys.time()
 end-begin
-
-#load and plot marginal AFs
-baseline_survs_marg_AD_list <- readRDS(file=paste0(ROSMAPtemp,"ROSMAP_AD_baseline_survs_marg.RDS"))
-AF_marg_AD_list <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_AD_AF_marg.RDS"))
-for(base in c("wb","ln", #"tbp",
-              NULL)){
-  AF_marg <- do.call(what = cbind,args = AF_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
-  baseline_survs_marg <- do.call(what = cbind, args = baseline_survs_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
-  cairo_pdf(file = paste0(figurepath,"ROSMAP_apoe_marg_af_",base,".pdf"), width = 5,height=6)
-  plot(x=p_seq_temp, y=rep(1,length(p_seq_temp)), type="l",
-       col="white",xlim=c(1,0),ylim = c(0.2,1.2), 
-       xlab = "Quantile (p)", ylab="Acceleration Factor") #placeholder plot to set up frame
-  rect(xleft=min(baseline_survs_marg),xright=0,ybottom=0,ytop=10,col = "grey96",border = NA)
-  lines(x=p_seq_temp, rep(1,length(p_seq_temp)),type="l", lty=3,lwd=2,col="grey20")
-  matplot(x = p_seq_temp,y = AF_marg,type = "l",lty=c(1,2,2),lwd=c(2,1,1),
-          col=rep(four_color_qual[2:4],each=3),add=TRUE)
-  legend("bottomright",
-         legend=c("Constant","Piecewise Linear","Spline"),
-         fill=four_color_qual[2:4],cex=0.8, bg="white")
-  dev.off()
-}
 
 #### Death: Survivor Curves ####
 t_seq_temp <- seq(from=0, to=40, length=80)[-1]
@@ -419,55 +408,6 @@ for(base in c("wb","ln", "tbp",
   }
 }
 
-#Plot effects for time-varying covariate at 5 and 20
-baseline_survs_marg_death_list <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_deathtv_baseline_survs_marg.RDS"))
-exposed_survs_marg_death_list <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_deathtv_exposed_survs_marg.RDS"))
-for(base in c("wb","ln", #"tbp",
-              NULL)){
-  #plot with all three flexible effects in the same plot
-  baseline_survs_marg_death <- 
-    do.call(what = cbind,args = baseline_survs_marg_death_list[paste0(base,"_",c("invariant","piece","spline"))])
-  cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_surv_",base,".pdf"), width = 4,height=4.8)
-  par(mfrow=c(2,1)) 
-  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
-  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
-  for(Xtv_time_temp in c(5,20)){
-    exposed_survs_marg_death <- 
-      do.call(what = cbind,args = exposed_survs_marg_death_list[paste0(base,"_",c("invariant","piece","spline"),"_time",Xtv_time_temp)])
-    matplot(x = t_seq_temp,y = baseline_survs_marg_death[,c(1,4,7)],type = "l",
-            col=c("grey60","grey40","grey20"),lty=1,lwd=2,ylim=c(0,1),
-            main="",ylab="Survivor Function",xlab=if(Xtv_time_temp == 20) "Time to Death, Years from Age 65" else "")
-    matplot(x = t_seq_temp,y = exposed_survs_marg_death[,c(1,4,7)],type = "l",
-            col=four_color_qual[2:4],lty=1,lwd=2, ylim=c(0,1), add=TRUE)
-    legend("bottomleft", title="AD/Dementia Onset",legend=c("Constant","Piecewise Linear", "Spline"),
-           fill=four_color_qual[2:4],cex=0.5)
-    legend("topright", title="No AD/Dementia Onset",legend=c("Constant","Piecewise Linear", "Spline"),
-           fill=c("grey60","grey40","grey20"),cex=0.5)
-  }
-  par(mfrow=c(1,1))
-  dev.off()
-  
-  #plot with just constant effect
-  baseline_survs_marg_death <- baseline_survs_marg_death_list[[paste0(base,"_",c("invariant"))]]
-  cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_surv_",base,"_invariant.pdf"), width = 4,height=4.8)
-  par(mfrow=c(2,1))
-  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
-  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
-  for(Xtv_time_temp in c(5,20)){
-    exposed_survs_marg_death <- exposed_survs_marg_death_list[[paste0(base,"_",c("invariant"),"_time",Xtv_time_temp)]]
-    plot(x = t_seq_temp,y = baseline_survs_marg_death[,1],type = "l", ylim=c(0,1),
-         col=c("grey20"),lty=1,lwd=2,main="",ylab="Survivor Function",
-         xlab=if(Xtv_time_temp == 20) "Time to Death, Years from Age 65" else "")
-    # matplot(x = t_seq_temp,y = exposed_survs_marg_death, 
-    #       type = "l",col=four_color_qual[2],lty=c(1,2,2),lwd=2,add=TRUE)
-    lines(x = t_seq_temp,y = exposed_survs_marg_death[,1], 
-          type = "l",col=four_color_qual[2],lty=1,lwd=2)
-    legend("bottomleft", legend=c("no AD/Dementia Onset","AD/Dementia Onset Onset"), fill=c("grey20",four_color_qual[2]),cex=0.75)
-  }
-  par(mfrow=c(1,1))
-  dev.off()
-}
-
 #### Death: Acceleration Factors ####
 p_seq_temp <- c(seq(from=0.01,to=0.99,by=0.02),0.995,0.999,0.9995)
 
@@ -489,57 +429,6 @@ for(base in c("wb","ln", "tbp",
   }
 }
 
-
-#Plot effects for time-varying covariate at 5 and 20
-AF_marg_death_list <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_deathtv_AF_marg.RDS"))
-for(base in c("wb","ln", "tbp",
-              NULL)){
-
-  baseline_survs_marg_death <- 
-    do.call(what = cbind,args = baseline_survs_marg_death_list[paste0(base,"_",c("invariant","piece","spline"))])
-  
-  #plot with all three flexible effects in the same plot
-  cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_af_",base,".pdf"), width = 4,height=4.8)
-  par(mfrow=c(2,1)) 
-  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
-  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
-  for(Xtv_time_temp in c(5,20)){
-    AF_marg_death <- 
-      do.call(what = cbind,args = AF_marg_death_list[paste0(base,"_",c("invariant","piece","spline"),"_time",Xtv_time_temp)])
-    plot(x=p_seq_temp, y=rep(1,length(p_seq_temp)), type="l",
-         col="white",xlim=c(1,0),ylim = c(0.2,1.2), 
-         xlab = "Survival Quantile (p)", ylab="Acceleration Factor") #placeholder plot to set up frame
-    rect(xleft=min(baseline_survs_marg_death),xright=0,ybottom=0,ytop=10,col = "grey96",border = NA)
-    lines(x=p_seq_temp, rep(1,length(p_seq_temp)),type="l", lty=3,lwd=2,col="grey20")
-    matplot(x = p_seq_temp,y = AF_marg_death,type = "l",lty=c(1,2,2),lwd=c(2,1,1),
-            col=rep(four_color_qual[2:4],each=3),add=TRUE)
-    legend("topright", legend=c("Constant","Piecewise Linear","Spline"),
-           fill=four_color_qual[2:4],cex=0.5, bg="white")
-  }
-  par(mfrow=c(1,1))
-  dev.off()
-  
-  #plot with just constant effect
-  cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_af_",base,"_invariant.pdf"), width = 4,height=4.8)
-  par(mfrow=c(2,1)) 
-  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
-  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
-  for(Xtv_time_temp in c(5,20)){
-    AF_marg_death <- AF_marg_death_list[[paste0(base,"_",c("invariant"),"_time",Xtv_time_temp)]]
-    plot(x=p_seq_temp, y=rep(1,length(p_seq_temp)), type="l",
-         col="white",xlim=c(1,0),ylim = c(0.2,1.2), 
-         xlab = "Survival Quantile (p)", ylab="Acceleration Factor") #placeholder plot to set up frame
-    rect(xleft=min(baseline_survs_marg_death),xright=0,ybottom=0,ytop=10,col = "grey96",border = NA)
-    lines(x=p_seq_temp, rep(1,length(p_seq_temp)),type="l", lty=3,lwd=2,col="grey20")
-    matplot(x = p_seq_temp,y = AF_marg_death,type = "l",lty=c(1,2,2),lwd=c(2,1,1),
-            col=rep(four_color_qual[2:4],each=3),add=TRUE)
-    legend("topright", legend=c("no AD/Dementia Onset","AD/Dementia Onset Onset"), 
-           fill=c("grey20",four_color_qual[2]),cex=0.5)
-  }
-  par(mfrow=c(1,1))
-  dev.off()
-}
-
 #### Death: Acceleration Surface ####
 t_seq_temp <- seq(from=0, to=45, length=90)[-1]
 p_seq_temp <- seq(from=0.01,to=0.99,by=0.01)
@@ -557,83 +446,288 @@ for(base in c("wb","ln", "tbp",
                                   thin=thin_amt,verbose = TRUE,long_out = TRUE)
   saveRDS(AF_marg_surface_long_list,file = paste0(ROSMAPtemp,"ROSMAP_deathtv_AFsurface_marg.RDS"))
 }
-AF_marg_surface_long_list <- readRDS(file = paste0(ROSMAPtemp,"ROSMAP_deathtv_AFsurface_marg.RDS"))
 
 
 
+
+
+####PLOT RESULTS####
+setEPS(horizontal = FALSE, onefile = FALSE, paper = "special")
+
+#use this to add little tags to the corners of figures
+#https://www.r-bloggers.com/2017/03/adding-figure-labels-a-b-c-in-the-top-left-corner-of-the-plotting-region/
+fig_label <- function(text, region="figure", pos="topleft", cex=NULL, ...) {
+  region <- match.arg(region, c("figure", "plot", "device"))
+  pos <- match.arg(pos, c("topleft", "top", "topright", 
+                          "left", "center", "right", 
+                          "bottomleft", "bottom", "bottomright"))
+  if(region %in% c("figure", "device")) {
+    ds <- dev.size("in")
+    # xy coordinates of device corners in user coordinates
+    x <- grconvertX(c(0, ds[1]), from="in", to="user")
+    y <- grconvertY(c(0, ds[2]), from="in", to="user")
+    # fragment of the device we use to plot
+    if(region == "figure") {
+      # account for the fragment of the device that 
+      # the figure is using
+      fig <- par("fig")
+      dx <- (x[2] - x[1])
+      dy <- (y[2] - y[1])
+      x <- x[1] + dx * fig[1:2]
+      y <- y[1] + dy * fig[3:4]
+    } 
+  }
+  # much simpler if in plotting region
+  if(region == "plot") {
+    u <- par("usr")
+    x <- u[1:2]
+    y <- u[3:4]
+  }
+  sw <- strwidth(text, cex=cex) * 60/100
+  sh <- strheight(text, cex=cex) * 60/100
+  x1 <- switch(pos,
+               topleft     =x[1] + sw, 
+               left        =x[1] + sw,
+               bottomleft  =x[1] + sw,
+               top         =(x[1] + x[2])/2,
+               center      =(x[1] + x[2])/2,
+               bottom      =(x[1] + x[2])/2,
+               topright    =x[2] - sw,
+               right       =x[2] - sw,
+               bottomright =x[2] - sw)
+  y1 <- switch(pos,
+               topleft     =y[2] - sh,
+               top         =y[2] - sh,
+               topright    =y[2] - sh,
+               left        =(y[1] + y[2])/2,
+               center      =(y[1] + y[2])/2,
+               right       =(y[1] + y[2])/2,
+               bottomleft  =y[1] + sh,
+               bottom      =y[1] + sh,
+               bottomright =y[1] + sh)
+  old.par <- par(xpd=NA)
+  on.exit(par(old.par))
+  text(x1, y1, text, cex=cex, ...)
+  return(invisible(c(x,y)))
+}
+
+t_seq_surface <- seq(from=0, to=45, length=90)[-1]
+t_seq_temp <- seq(from=0, to=40, length=80)[-1]
+p_seq_temp <- c(seq(from=0.01,to=0.99,by=0.01),0.995,0.999,0.9995)
+n_samp <- 30000
+
+#### AD: Survivor Curves ####
+for(base in c("wb","ln", "tbp",
+              NULL)){
+  baseline_survs_marg <- do.call(what = cbind, args = baseline_survs_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
+  exposed_survs_marg <- do.call(what = cbind, args = exposed_survs_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
+  #marginal curves
+  # cairo_pdf(file = paste0(figurepath,"ROSMAP_apoe_marg_surv_",base,".pdf"), width = 5,height=6)
+  postscript(file = paste0(figurepath,"ROSMAP_apoe_marg_surv_",base,".eps"), width = 5,height=6)
+  plot(S0_cox_AD_m,col=c("grey80",four_color_qual[1]),lwd=2, ylim=c(0,1),
+       xlab="Time to AD/Dementia without Death, Years from Age 65",
+       ylab="Survivor Function",conf.int = FALSE)
+  matplot(x = t_seq_temp, y = exposed_survs_marg[,c(1,4,7)], type = "l",
+          col=four_color_qual[2:4],lty=1,lwd = 2, add=TRUE)
+  matplot(x = t_seq_temp,y = baseline_survs_marg[,c(1,4,7)],type = "l",
+          col=c("grey60","grey40","grey20"),lty=1,lwd=2,add=TRUE)
+  legend("topright", title="No APOE-e4",fill=c("grey80","grey60","grey40","grey20"),cex=0.75,
+         legend=c("PH, Constant", "AFT, Constant","AFT, Piecewise Linear", "AFT, Spline"))
+  legend("bottomleft", title="APOE-e4",fill=four_color_qual,cex=0.75,
+         legend=c("PH, Constant", "AFT, Constant","AFT, Piecewise Linear", "AFT, Spline"))
+  fig_label(text = "(a)",region = "figure",pos = "topleft")
+  dev.off()
+}
+
+#### AD: Acceleration Factors ####
+for(base in c("wb","ln", "tbp",
+              NULL)){
+  AF_marg <- do.call(what = cbind,args = AF_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
+  baseline_survs_marg <- do.call(what = cbind, args = baseline_survs_marg_AD_list[paste0(base,"_",c("invariant","piece","spline"))])
+  # cairo_pdf(file = paste0(figurepath,"ROSMAP_apoe_marg_af_",base,".pdf"), width = 5,height=6)
+  postscript(file = paste0(figurepath,"ROSMAP_apoe_marg_af_",base,".eps"), width = 5,height=6)
+  plot(x=p_seq_temp, y=rep(1,length(p_seq_temp)), type="l",
+       col="white",xlim=c(1,0),ylim = c(0.2,1.2),
+       xlab = "Quantile (p)", ylab="Acceleration Factor") #placeholder plot to set up frame
+  rect(xleft=min(baseline_survs_marg),xright=0,ybottom=0,ytop=10,col = "grey96",border = NA)
+  lines(x=p_seq_temp, rep(1,length(p_seq_temp)),type="l", lty=3,lwd=2,col="grey20")
+  matplot(x = p_seq_temp,y = AF_marg,type = "l",lty=c(1,2,2),lwd=c(2,1,1),
+          col=rep(four_color_qual[2:4],each=3),add=TRUE)
+  legend("bottomright",
+         legend=c("Constant","Piecewise Linear","Spline"),
+         fill=four_color_qual[2:4],cex=0.8, bg="white")
+  fig_label(text = "(b)",region = "figure",pos = "topleft")
+  dev.off()
+}
+
+#### Death: Survivor Curves ####
+for(base in c("wb","ln", "tbp",
+              NULL)){
+  #plot with all three flexible effects in the same plot
+  baseline_survs_marg_death <-
+    do.call(what = cbind,args = baseline_survs_marg_death_list[paste0(base,"_",c("invariant","piece","spline"))])
+  # cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_surv_",base,".pdf"), width = 4,height=5.8)
+  postscript(file = paste0(figurepath,"ROSMAP_deathtv_marg_surv_",base,".eps"), width = 4,height=5.8)
+  par(mfrow=c(2,1))
+  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
+  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
+  for(Xtv_time_temp in c(5,20)){
+    exposed_survs_marg_death <-
+      do.call(what = cbind,args = exposed_survs_marg_death_list[paste0(base,"_",c("invariant","piece","spline"),"_time",Xtv_time_temp)])
+    matplot(x = t_seq_temp,y = baseline_survs_marg_death[,c(1,4,7)],type = "l",
+            col=c("grey60","grey40","grey20"),lty=1,lwd=2,ylim=c(0,1),
+            main="",ylab="Survivor Function",xlab=if(Xtv_time_temp == 20) "Time to Death, Years from Age 65" else "")
+    matplot(x = t_seq_temp,y = exposed_survs_marg_death[,c(1,4,7)],type = "l",
+            col=four_color_qual[2:4],lty=1,lwd=2, ylim=c(0,1), add=TRUE)
+    legend("bottomleft", title="AD/Dementia Onset",legend=c("Constant","Piecewise Linear", "Spline"),
+           fill=four_color_qual[2:4],cex=0.5)
+    legend("topright", title="No AD/Dementia Onset",legend=c("Constant","Piecewise Linear", "Spline"),
+           fill=c("grey60","grey40","grey20"),cex=0.5)
+    fig_label(text = if(Xtv_time_temp==5) "(a)" else "(c)", region = "figure", pos = "topleft")
+  }
+  par(mfrow=c(1,1))
+  dev.off()
+  
+  #plot with just constant effect
+  baseline_survs_marg_death <- baseline_survs_marg_death_list[[paste0(base,"_",c("invariant"))]]
+  # cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_surv_",base,"_invariant.pdf"), width = 4,height=5.8)
+  postscript(file = paste0(figurepath,"ROSMAP_deathtv_marg_surv_",base,"_invariant.eps"), width = 4,height=5.8)
+  par(mfrow=c(2,1))
+  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
+  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
+  for(Xtv_time_temp in c(5,20)){
+    exposed_survs_marg_death <- exposed_survs_marg_death_list[[paste0(base,"_",c("invariant"),"_time",Xtv_time_temp)]]
+    plot(x = t_seq_temp,y = baseline_survs_marg_death[,1],type = "l", ylim=c(0,1),
+         col=c("grey60"),lty=1,lwd=2,main="",ylab="Survivor Function",
+         xlab=if(Xtv_time_temp == 20) "Time to Death, Years from Age 65" else "")
+    lines(x = t_seq_temp,y = exposed_survs_marg_death[,1],
+          type = "l",col=four_color_qual[2],lty=1,lwd=2)
+    legend("bottomleft",
+           legend=c("no AD Onset","AD Onset"),
+           # legend=c("no AD/Dementia Onset","AD/Dementia Onset"),
+           fill=c("grey60",four_color_qual[2]),cex=0.75)
+  }
+  par(mfrow=c(1,1))
+  dev.off()
+}
+
+#### Death: Acceleration Factors ####
+for(base in c("wb","ln", "tbp",
+              NULL)){
+  baseline_survs_marg_death <-
+    do.call(what = cbind,args = baseline_survs_marg_death_list[paste0(base,"_",c("invariant","piece","spline"))])
+  #plot with all three flexible effects in the same plot
+  # cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_af_",base,".pdf"), width = 4,height=5.8)
+  postscript(file = paste0(figurepath,"ROSMAP_deathtv_marg_af_",base,".eps"), width = 4,height=5.8)
+  par(mfrow=c(2,1))
+  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
+  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
+  for(Xtv_time_temp in c(5,20)){
+    AF_marg_death <-
+      do.call(what = cbind,args = AF_marg_death_list[paste0(base,"_",c("invariant","piece","spline"),"_time",Xtv_time_temp)])
+    plot(x=p_seq_temp, y=rep(1,length(p_seq_temp)), type="l",
+         col="white",xlim=c(1,0),ylim = c(0.2,1.2),
+         xlab = if(Xtv_time_temp == 20) "Survival Quantile (p)" else "", 
+         ylab="Acceleration Factor") #placeholder plot to set up frame
+    rect(xleft=min(baseline_survs_marg_death),xright=0,ybottom=0,ytop=10,col = "grey96",border = NA)
+    lines(x=p_seq_temp, rep(1,length(p_seq_temp)),type="l", lty=3,lwd=2,col="grey20")
+    matplot(x = p_seq_temp,y = AF_marg_death,type = "l",lty=c(1,2,2),lwd=c(2,1,1),
+            col=rep(four_color_qual[2:4],each=3),add=TRUE)
+    legend("topright", legend=c("Constant","Piecewise Linear","Spline"),
+           fill=four_color_qual[2:4],cex=0.5, bg="white")
+    fig_label(text = if(Xtv_time_temp==5) "(b)" else "(d)", region = "figure", pos = "topleft")
+  }
+  par(mfrow=c(1,1))
+  dev.off()
+  #plot with just constant effect
+  # cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_af_",base,"_invariant.pdf"), width = 4,height=5.8)
+  postscript(file = paste0(figurepath,"ROSMAP_deathtv_marg_af_",base,"_invariant.eps"), width = 4,height=5.8)
+  par(mfrow=c(2,1))
+  par(mar = c(4,4.1,0.5,0.1)) #bottom, left, top, right
+  # par(mar = c(5.1, 4.1, 4.1, 2.1)) #default
+  for(Xtv_time_temp in c(5,20)){
+    AF_marg_death <- AF_marg_death_list[[paste0(base,"_",c("invariant"),"_time",Xtv_time_temp)]]
+    plot(x=p_seq_temp, y=rep(1,length(p_seq_temp)), type="l",
+         col="white",xlim=c(1,0),ylim = c(0.5,1.2),
+         xlab = if(Xtv_time_temp == 20) "Survival Quantile (p)" else "", 
+         ylab="Acceleration Factor") #placeholder plot to set up frame
+    rect(xleft=min(baseline_survs_marg_death),xright=0,ybottom=0,ytop=10,col = "grey96",border = NA)
+    lines(x=p_seq_temp, rep(1,length(p_seq_temp)),type="l", lty=3,lwd=2,col="grey60")
+    matplot(x = p_seq_temp,y = AF_marg_death,type = "l",lty=c(1,2,2),lwd=c(2,1,1),
+            col=rep(four_color_qual[2:4],each=3),add=TRUE)
+    legend("topright",
+           # legend=c("no AD/Dementia Onset","AD/Dementia Onset Onset"),
+           legend=c("no AD Onset","AD Onset"),
+           fill=c("grey60",four_color_qual[2]),cex=0.5)
+  }
+  par(mfrow=c(1,1))
+  dev.off()
+}
+
+#### Death: Acceleration Surface ####
 breaks_plot <- seq(0.2,1.25,by = 0.05)
+#invariant only
 for(base in c("wb",
-              "ln", 
+              "ln",
               "tbp",
               NULL)){
   for(eff in c("invariant",
-               "piece", 
+               "piece",
                "spline",
                NULL)){
-    AF_marg_surface_long <- AF_marg_surface_long_list[[paste0(base,"_",eff)]]
+    label_temp <- switch(eff, "invariant"="(a)","piece"="(b)","spline"="(c)")
     
-    if(eff %in% c("invariant","piece")){
-      
+    AF_marg_surface_long <- AF_marg_surface_long_list[[paste0(base,"_",eff)]]
+    if(eff=="piece" & base=="tbp"){
+      #there's a single very small numerical value above 1 that is disrupting the 
+      #coloring for the tbp piecewise model
+      AF_marg_surface_long$AF[AF_marg_surface_long$AF>1] <- 1
+    }
+    
+    if(eff =="spline"){
+      n_blue_bins <- max(AF_marg_surface_long$AF) %/% .05 - 19
       n_red_bins <- 20 - min(AF_marg_surface_long$AF) %/% .05
-      contour_colors <- 
-        rev(colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_red_bins))
-      
-      
-      #https://www.datanovia.com/en/blog/easy-way-to-expand-color-palettes-in-r/
-      # n_contour_bins <- 11
-      # contour_colors <- rev(colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_contour_bins))
-      AF_marg_surface_long$AF[AF_marg_surface_long$AF==1] <- NA
-    } else{
-      
-      if(base=="tbp"){
-        n_blue_bins <- max(AF_marg_surface_long$AF) %/% .05 - 19
-        n_red_bins <- 20 - min(AF_marg_surface_long$AF) %/% .05
-        contour_colors <- 
-          rev(c(if(n_blue_bins > 0) rev(colorRampPalette(RColorBrewer::brewer.pal(6, "Blues"))(n_red_bins)[1:n_blue_bins]),
-                colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_red_bins)))
-      } else{
-        n_blue_bins <- max(AF_marg_surface_long$AF) %/% .05 - 19
-        n_red_bins <- 20 - min(AF_marg_surface_long$AF) %/% .05
-        contour_colors <- 
-          rev(c(if(n_blue_bins > 0) rev(colorRampPalette(RColorBrewer::brewer.pal(6, "Blues"))(n_red_bins)[1:n_blue_bins]),
-                colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_red_bins)))
-      }
-      
-      
+      contour_colors <-
+        rev(c(if(n_blue_bins > 0) rev(colorRampPalette(RColorBrewer::brewer.pal(6, "Blues"))(n_red_bins)[1:n_blue_bins]),
+              colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_red_bins)))
       #fix the coloring of the figures
       #specifically, we want to:
       #replace all 1's before the time of AD onset with NAs, but not after
       #without throwing out the values very early on when there are never any 1's in the row
-      AF_marg_surface_long <- AF_marg_surface_long %>% group_by(Sinvx) %>% 
-        mutate(flag = ifelse(AF>1.000001,1,NA)) %>% 
+      AF_marg_surface_long <- AF_marg_surface_long %>% group_by(Sinvx) %>%
+        mutate(flag = ifelse(AF>1.000001,1,NA)) %>%
         fill(flag, .direction="up") %>% add_tally(wt=flag) %>%
         mutate(AF = ifelse(flag==1 | (n==0 & Sinvx < 10),AF, NA))
       
-      
-      # #https://www.datanovia.com/en/blog/easy-way-to-expand-color-palettes-in-r/
+    } else {
+      #how many steps of 5 get from the minimum value to 1?
+      n_red_bins <- 20 - min(AF_marg_surface_long$AF) %/% .05
+      contour_colors <-
+        rev(colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_red_bins))
+      #https://www.datanovia.com/en/blog/easy-way-to-expand-color-palettes-in-r/
       # n_contour_bins <- 11
       # contour_colors <- rev(colorRampPalette(RColorBrewer::brewer.pal(8, "Reds"))(n_contour_bins))
-      # contour_colors <- c(contour_colors,RColorBrewer::brewer.pal(8, "Blues")[1:2])
-      
+      AF_marg_surface_long$AF[AF_marg_surface_long$AF==1] <- NA      
     }
-    # if(base=="tbp"){
-    #   width_temp <- 6.5; height_temp <- 4.5
-    # } else{
+    
     width_temp <- 4; height_temp <- 6
-    # }
     cairo_pdf(file = paste0(figurepath,"ROSMAP_deathtv_marg_afsurface_",base,"_",eff,"_qt.pdf"),
               width = width_temp,height=height_temp)
+    # postscript(file = paste0(figurepath,"ROSMAP_deathtv_marg_afsurface_",base,"_",eff,"_qt.eps"),
+    #         width = width_temp,height=height_temp)
     print(ggplot(data = AF_marg_surface_long,
                  mapping = aes(x = p,y = Sinvx,z = AF)) + theme_classic() +
-            geom_contour_filled(breaks = breaks_plot) + xlim(1,0) + scale_fill_manual(values=contour_colors) + 
-            ylab("Years since 65 at AD Onset") + 
-            xlab("Survival Quantile (p)") + #ggtitle(label = base,subtitle = eff) + 
+            geom_contour_filled(breaks = breaks_plot) +
+            # geom_segment(aes(x=0,xend=1,y=5,yend=5),linetype=3,color="grey20") +
+            # geom_segment(aes(x=0,xend=1,y=20,yend=20),linetype=3,color="grey20") +
+            xlim(1,0) +
+            scale_fill_manual(values=contour_colors) +
+            ylab("Years since 65 at AD Onset") + labs(tag=label_temp) + 
+            xlab("Survival Quantile (p)") + #ggtitle(label = base,subtitle = eff) +
             guides(fill=guide_legend(title="AF",reverse=TRUE)))
     dev.off()
   }
 }
-
-
 
 
 ##### TBP Prior Illustration ####
@@ -689,6 +783,14 @@ legend(x="topright",legend = 1:4,fill = four_color_qual)
 dev.off()
 print(xtable::xtable(do.call(what = cbind,args = w_list)))
 
+
+test_vec <- rexp(n=1e4,rate = 1)
+microbenchmark::microbenchmark(S0_wb_tbp(x = test_vec,inter=0,alpha=1,w=w_temp),
+                               S0_wb_tbp2(x = test_vec,inter=0,alpha=1,w=w_temp))
+
+
+
+
 set.seed(1234)
 curve(S0_wb_tbp(x,inter=0,alpha=1,w=rep(1/J,J)),from = 0,to = 4)
 for(i in 1:20){
@@ -701,11 +803,7 @@ curve(S0_wb_tbp(x,inter=0,alpha=1,w=rep(1/J,J)),from = 0,to = 4,add=TRUE)
 
 
 #### Example Curves for Introductory Section ####
-
-path <- "/Users/reederh/Dropbox/Harrison Reeder/Paper2_AFT/"
-scriptpath <- paste0(path,"Code/")
-
-source(paste0(scriptpath,"AFT_functions_2021-06-18.R"))
+source("AFT_functions.R")
 
 #setting up for some plotting
 t_seq <- seq(from=0,to=10,by=0.01)
@@ -724,16 +822,12 @@ knots_temp3 <- c(0,0,0.5,3)
 S0_plot <- function(x){pexp(q=x,rate=0.3,lower.tail = FALSE)}
 S0_inv_plot <- function(x){qexp(p=x,rate=0.3,lower.tail = FALSE)}
 
-
-
 leg <- function(x="topright",plot=TRUE,cex=0.8){
   legend(x = x,title = expression(beta(t)),
          fill=c("grey","black","red","blue"),
          cex = cex,
          legend = c("0","1", "log(t+1)","piecewise"))
 }
-
-
 
 #survivor curve
 cairo_pdf(paste0(figurepath,"S_ex.pdf"),width=5,height=6)
@@ -760,7 +854,6 @@ legend(x = "topright",title = expression(V(t)),
                   expression((t^{1-0.5*X} - 1) /(1-0.5*X))))
 dev.off()
 
-
 # now, let's look at ratio of inverse survivor function to inverse baseline survivor function
 # this is a sort of "acceleration factor over the percentiles" visual
 #here, because we know S0 is exponential, then inverse is -log(y)
@@ -773,8 +866,6 @@ plot(p_seq,Vinv(x = S0p_seq, beta = beta_temp, type = "baseline")/S0p_seq,
      type = "l", xlim=c(1,0), ylim = c(0,3), xaxp=c(0,1,4),
      ylab="Acceleration Factor", 
      xlab = "Survival Quantile (p)", col="grey20",
-     # ylab=expression(xi(p~"|"~1,0,S[0])), xlab = "p",col="grey",
-     # ylab=expression(V^{-1} ~ (S[0]^-1 ~ (p))/S[0]^-1 ~ (p)), xlab = "p",col="grey",
      lwd=2,lty=3)
 lines(p_seq,Vinv(x = S0p_seq, beta = beta_temp, type = "constant")/S0p_seq, 
       type = "l", col=four_color_qual[2],lwd=2)
